@@ -3,7 +3,7 @@
 
 🇹🇷 Türkçe | 🇫🇷 Français | 🇬🇧 English
 
-🇹🇷 Proje Hakkında
+## 🇹🇷 Proje Hakkında
 
 Türkiye Cumhuriyeti Diyanet İşleri Başkanlığı'nın resmi namaz vakitlerini anlık olarak çeken, hızlı, hafif ve üretime hazır (production-ready) bir REST API. Bu proje, özellikle dakikası dakikasına doğru verilere ihtiyaç duyan ve tek bir istekle bir yıldan fazla veriyi sunabilen Çevrimdışı Öncelikli (Offline-First) mobil uygulamalara güç vermek üzere tasarlanmıştır.
 
@@ -17,16 +17,19 @@ Mobil Uyumlu Yapı: Döndürülen JSON verisinde Miladi tarihler, Hicri tarihler
 
 Tam Şehir Referans Dosyası: Proje, 81 ilin ve tüm ilçelerin Diyanet sistemindeki resmi ID'lerini listeleyen bir villes_turquie.json (statik JSON) dosyası içerir.
 
-Kullanım (Endpoint)
+### Kullanım (Endpoint)
 
+```json
 GET /api/horaires/mensuel?ville={ILCE_ID}
+```
 
 
-Örnek İstek (Kadıköy, İstanbul):
+### Örnek İstek (Kadıköy, İstanbul):
 http://localhost:3000/api/horaires/mensuel?ville=9541
 
-Örnek JSON Yanıtı:
+#### Örnek JSON Yanıtı:
 
+```json
 {
   "success": true,
   "ville_id": "9541",
@@ -45,9 +48,10 @@ http://localhost:3000/api/horaires/mensuel?ville=9541
     }
   ]
 }
+```
 
 
-Yerel Kurulum (Local Setup)
+### Yerel Kurulum (Local Setup)
 
 git clone [https://github.com/KULLANICI_ADINIZ/api-diyanet-turquie.git](https://github.com/KULLANICI_ADINIZ/api-diyanet-turquie.git)
 cd api-diyanet-turquie
@@ -55,7 +59,7 @@ npm install
 node index.js
 
 
-🇫🇷 À propos du projet
+## 🇫🇷 À propos du projet
 
 Une API REST rapide, légère et robuste pour récupérer les horaires de prière officiels de la Présidence des Affaires Religieuses de Turquie (Diyanet). Ce projet a été architecturé pour alimenter des applications mobiles Offline-First nécessitant des données d'une précision absolue, couvrant plus d'une année d'horaires en une seule requête HTTP.
 
@@ -73,7 +77,7 @@ Utilisation & Installation
 
 Voir les sections de requêtes et d'installation dans la partie Turque ci-dessus.
 
-🇬🇧 About The Project
+## 🇬🇧 About The Project
 
 A fast, lightweight, and production-ready REST API to fetch official prayer times from the Turkish Directorate of Religious Affairs (Diyanet). Engineered to power Offline-First mobile applications, it delivers over a year's worth of minute-perfect schedules in a single request.
 
