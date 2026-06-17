@@ -53,7 +53,7 @@ http://localhost:3000/api/horaires/mensuel?ville=9541
 
 ### Yerel Kurulum (Local Setup)
 
-git clone [https://github.com/KULLANICI_ADINIZ/api-diyanet-turquie.git](https://github.com/KULLANICI_ADINIZ/api-diyanet-turquie.git)
+git clone [https://github.com/KULLANICI_ADINIZ/api-namaz-vakti-diyanet-turkiye.git](https://github.com/KULLANICI_ADINIZ/api-namaz-vakti-diyanet-turkiye.git)
 cd api-diyanet-turquie
 npm install
 node index.js

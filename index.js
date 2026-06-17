@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 3000;
 const cacheLocal = {};
 
 app.get('/api/horaires/mensuel', async (req, res) => {
-    const villeId = req.query.ville || '9541'; 
+    const villeId = req.query.ville || '9541';
     const maintenant = Date.now();
 
     // 1. VÉRIFICATION DU CACHE
