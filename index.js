@@ -5,29 +5,46 @@ const cors = require('cors');
 
 const app = express();
 app.use(cors());
+app.set('json spaces', 2);
 
 const PORT = process.env.PORT || 3000;
 
-// 🧠 Notre base de données temporaire en mémoire RAM (Le Cache)
+// CONSTANTES D'INGÉNIERIE
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // Durée de vie du cache : 24 heures
+const AXIOS_TIMEOUT_MS = 8000; // Délai d'attente max : 8 secondes
+const MAX_CACHE_SIZE = 1000; // Nombre max de villes en RAM
+
+// Base de données en mémoire
 const cacheLocal = {};
 
 app.get('/api/horaires/mensuel', async (req, res) => {
-    const villeId = req.query.ville || '9541';
+    const villeIdBrut = req.query.ville || '9541';
+
+    // 1. SÉCURITÉ : Validation stricte des entrées
+    // Exige que la valeur ne soit composée strictement que de chiffres
+    if (!/^\d+$/.test(villeIdBrut)) {
+        return res.status(400).json({
+            success: false,
+            erreur: "Format d'ID invalide. Chiffres uniquement."
+        });
+    }
+    
+    const villeId = villeIdBrut;
     const maintenant = Date.now();
 
-    // 1. VÉRIFICATION DU CACHE
-    // Si on a déjà les données pour cette ville et qu'elles ont moins de 24 heures (86 400 000 ms)
-    if (cacheLocal[villeId] && (maintenant - cacheLocal[villeId].timestamp < 86400000)) {
-        console.log(`⚡ Rapide ! Données servies depuis le CACHE pour la ville ${villeId}`);
+    // 2. GESTION DU CACHE
+    if (cacheLocal[villeId] && (maintenant - cacheLocal[villeId].timestamp < CACHE_TTL_MS)) {
+        console.log(`⚡ [CACHE] Hit pour la ville ${villeId}`);
         return res.json(cacheLocal[villeId].donnees);
     }
 
-    // 2. SI PAS DE CACHE, ON SCRAPE LE DIYANET
-    console.log(`🌐 Lent... Scraping en direct du Diyanet pour la ville ${villeId}`);
+    console.log(`🌐 [RÉSEAU] Scraping Diyanet pour la ville ${villeId}...`);
     const urlDiyanet = `https://namazvakitleri.diyanet.gov.tr/tr-TR/${villeId}`;
 
     try {
+        // 3. RÉSILIENCE : Ajout du Timeout
         const response = await axios.get(urlDiyanet, {
+            timeout: AXIOS_TIMEOUT_MS,
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Accept': 'text/html'
@@ -53,28 +70,41 @@ app.get('/api/horaires/mensuel', async (req, res) => {
             }
         });
 
+        // 4. FAIL-FAST : Sécurité contre les changements d'interface du Diyanet
+        if (horairesMensuels.length === 0) {
+            throw new Error("Structure DOM invalide. Le site cible a peut-être changé.");
+        }
+
         const reponseFinale = {
             success: true,
             ville_id: villeId,
             source: "diyanet_officiel",
+            derniere_mise_a_jour: new Date().toISOString(), // Ajout utile pour l'app mobile
             total_jours: horairesMensuels.length,
             horaires: horairesMensuels
         };
 
-        // 3. ON SAUVEGARDE DANS LE CACHE POUR LES PROCHAINS UTILISATEURS
-        cacheLocal[villeId] = {
-            timestamp: maintenant,
-            donnees: reponseFinale
-        };
+        // 5. PRÉVENTION DES FUITES MÉMOIRE
+        if (Object.keys(cacheLocal).length >= MAX_CACHE_SIZE) {
+            console.warn("🧹 [MÉMOIRE] Nettoyage d'urgence du cache (Flush).");
+            for (let key in cacheLocal) delete cacheLocal[key]; 
+        }
 
+        cacheLocal[villeId] = { timestamp: maintenant, donnees: reponseFinale };
         res.json(reponseFinale);
 
     } catch (error) {
-        console.error("Erreur de scraping :", error.message);
-        res.status(500).json({ success: false, erreur: error.message });
+        console.error(`❌ [ERREUR] Ville ${villeId} :`, error.message);
+        
+        // Code HTTP dynamique : 504 si Diyanet met trop de temps, 502 sinon
+        const statusCode = error.code === 'ECONNABORTED' ? 504 : 502;
+        res.status(statusCode).json({ 
+            success: false, 
+            erreur: "Le service officiel est temporairement indisponible." 
+        });
     }
 });
 
 app.listen(PORT, () => {
-    console.log(`✅ Backend avec CACHE activé sur le port ${PORT}`);
+    console.log(`✅ Backend de Production (v2.0) en écoute sur le port ${PORT}`);
 });
