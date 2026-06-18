@@ -25,7 +25,7 @@ GET /api/horaires/mensuel?ville={ILCE_ID}
 
 
 ### Örnek İstek (Kadıköy, İstanbul):
-https://api-diyanet-horaires-mvgl99v1h-ismael-sanogo.vercel.app/api/horaires/mensuel?ville=9541
+https://api-diyanet-horaires.vercel.app/api/horaires/mensuel?ville=9541
 
 #### Örnek JSON Yanıtı:
 
