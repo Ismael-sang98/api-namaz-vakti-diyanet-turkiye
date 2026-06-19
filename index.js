@@ -8,53 +8,62 @@ app.use(cors());
 app.set('json spaces', 2);
 
 const PORT = process.env.PORT || 3000;
-
-// ⚙️ CONSTANTES D'INGÉNIERIE
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // Durée de vie du cache local : 24 heures
-const AXIOS_TIMEOUT_MS = 8000; // Délai d'attente max : 8 secondes
-const MAX_CACHE_SIZE = 1000; // Nombre max de villes en RAM
-
-// 🧠 Base de données en mémoire (L1 Cache - pour le développement local et la durée de vie de la fonction Vercel)
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const AXIOS_TIMEOUT_MS = 10000; // Augmenté à 10s pour contrer les Cold Starts
+const MAX_CACHE_SIZE = 1000;
 const cacheLocal = {};
+
+// 🆕 ROUTE D'ACCUEIL (Healthcheck) : Fini le "Cannot GET /" !
+app.get('/', (req, res) => {
+    res.json({
+        service: "Diyanet Namaz Vakitleri API",
+        status: "Online",
+        version: "2.1",
+        documentation: "Voir le fichier README.md sur GitHub",
+        endpoint_test: "/api/horaires/mensuel?ville=9541"
+    });
+});
 
 app.get('/api/horaires/mensuel', async (req, res) => {
     const villeIdBrut = req.query.ville || '9541';
 
-    // 1. SÉCURITÉ : Validation stricte des entrées
     if (!/^\d+$/.test(villeIdBrut)) {
-        return res.status(400).json({
-            success: false,
-            erreur: "Format d'ID invalide. Chiffres uniquement."
-        });
+        return res.status(400).json({ success: false, erreur: "Format d'ID invalide." });
     }
     
     const villeId = villeIdBrut;
     const maintenant = Date.now();
 
-    // 💡 OPTIMISATION VERCEL (L2 Cache - CDN Edge)
-    // s-maxage=86400 : Indique aux serveurs Vercel de garder le JSON en cache pendant 24 heures.
-    // stale-while-revalidate=43200 : Permet à Vercel de servir un vieux cache pendant qu'il se met à jour en arrière-plan.
-    // C'est le secret pour supporter des millions de requêtes gratuitement.
     res.setHeader('Cache-Control', 'public, s-maxage=86400, stale-while-revalidate=43200');
 
-    // 2. GESTION DU CACHE LOCAL (Sert surtout quand on teste sur notre machine)
     if (cacheLocal[villeId] && (maintenant - cacheLocal[villeId].timestamp < CACHE_TTL_MS)) {
-        console.log(`⚡ [CACHE LOCAL] Hit pour la ville ${villeId}`);
         return res.json(cacheLocal[villeId].donnees);
     }
 
-    console.log(`🌐 [RÉSEAU] Scraping Diyanet pour la ville ${villeId}...`);
     const urlDiyanet = `https://namazvakitleri.diyanet.gov.tr/tr-TR/${villeId}`;
 
-    try {
-        // 3. RÉSILIENCE : Ajout du Timeout
-        const response = await axios.get(urlDiyanet, {
-            timeout: AXIOS_TIMEOUT_MS,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Accept': 'text/html'
+    // 🛡️ NOUVEAU : Fonction de réessai automatique (Retry Pattern)
+    const fetchAvecReessai = async (url, retries = 2) => {
+        for (let i = 0; i < retries; i++) {
+            try {
+                return await axios.get(url, {
+                    timeout: AXIOS_TIMEOUT_MS,
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                        'Accept': 'text/html'
+                    }
+                });
+            } catch (error) {
+                if (i === retries - 1) throw error; // Si c'est le dernier essai, on jette l'erreur
+                console.warn(`⚠️ [RÉSEAU] Échec de la tentative ${i + 1}. Nouvel essai dans 1 seconde...`);
+                await new Promise(res => setTimeout(res, 1000)); // Pause de 1s avant de réessayer
             }
-        });
+        }
+    };
+
+    try {
+        // Remplacement de l'appel direct par notre fonction robuste
+        const response = await fetchAvecReessai(urlDiyanet);
 
         const $ = cheerio.load(response.data);
         const horairesMensuels = [];
@@ -75,10 +84,7 @@ app.get('/api/horaires/mensuel', async (req, res) => {
             }
         });
 
-        // 4. FAIL-FAST : Sécurité contre les changements d'interface
-        if (horairesMensuels.length === 0) {
-            throw new Error("Structure DOM invalide. Le site cible a peut-être changé.");
-        }
+        if (horairesMensuels.length === 0) throw new Error("Structure DOM invalide.");
 
         const reponseFinale = {
             success: true,
@@ -89,9 +95,7 @@ app.get('/api/horaires/mensuel', async (req, res) => {
             horaires: horairesMensuels
         };
 
-        // 5. PRÉVENTION DES FUITES MÉMOIRE LOCALES
         if (Object.keys(cacheLocal).length >= MAX_CACHE_SIZE) {
-            console.warn("🧹 [MÉMOIRE] Nettoyage d'urgence du cache local.");
             for (let key in cacheLocal) delete cacheLocal[key]; 
         }
 
@@ -99,16 +103,17 @@ app.get('/api/horaires/mensuel', async (req, res) => {
         res.json(reponseFinale);
 
     } catch (error) {
-        console.error(`❌ [ERREUR] Ville ${villeId} :`, error.message);
-        
         const statusCode = error.code === 'ECONNABORTED' ? 504 : 502;
-        res.status(statusCode).json({ 
-            success: false, 
-            erreur: "Le service officiel est temporairement indisponible." 
-        });
+        res.status(statusCode).json({ success: false, erreur: "Le service officiel est temporairement indisponible." });
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`✅ Backend de Production (v2.0 avec Edge Cache) en écoute sur le port ${PORT}`);
-});
+// 🛠️ ADAPTATION SERVERLESS POUR VERCEL
+if (process.env.NODE_ENV !== 'production') {
+    // Mode local (Mac)
+    app.listen(PORT, () => {
+        console.log(`✅ Backend local en écoute sur le port ${PORT}`);
+    });
+}
+// Mode Production (Vercel)
+module.exports = app;
