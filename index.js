@@ -2,9 +2,13 @@ const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
+app.use(helmet());
 app.use(cors());
+app.use(rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false }));
 app.set('json spaces', 2);
 
 const PORT = process.env.PORT || 3000;
@@ -25,7 +29,11 @@ app.get('/', (req, res) => {
 });
 
 app.get('/api/horaires/mensuel', async (req, res) => {
-    const villeIdBrut = req.query.ville || '9541';
+    const villeIdBrut = req.query.ville;
+
+    if (!villeIdBrut) {
+        return res.status(400).json({ success: false, erreur: "Paramètre 'ville' requis." });
+    }
 
     if (!/^\d+$/.test(villeIdBrut)) {
         return res.status(400).json({ success: false, erreur: "Format d'ID invalide." });
@@ -49,7 +57,7 @@ app.get('/api/horaires/mensuel', async (req, res) => {
                 return await axios.get(url, {
                     timeout: AXIOS_TIMEOUT_MS,
                     headers: {
-                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
                         'Accept': 'text/html'
                     }
                 });
@@ -84,7 +92,11 @@ app.get('/api/horaires/mensuel', async (req, res) => {
             }
         });
 
-        if (horairesMensuels.length === 0) throw new Error("Structure DOM invalide.");
+        if (horairesMensuels.length === 0) {
+            const err = new Error("DOM_PARSE_ERROR");
+            err.isDomError = true;
+            throw err;
+        }
 
         const reponseFinale = {
             success: true,
@@ -96,13 +108,17 @@ app.get('/api/horaires/mensuel', async (req, res) => {
         };
 
         if (Object.keys(cacheLocal).length >= MAX_CACHE_SIZE) {
-            for (let key in cacheLocal) delete cacheLocal[key]; 
+            const oldestKey = Object.keys(cacheLocal).sort((a, b) => cacheLocal[a].timestamp - cacheLocal[b].timestamp)[0];
+            delete cacheLocal[oldestKey];
         }
 
         cacheLocal[villeId] = { timestamp: maintenant, donnees: reponseFinale };
         res.json(reponseFinale);
 
     } catch (error) {
+        if (error.isDomError) {
+            return res.status(503).json({ success: false, erreur: "Structure du site Diyanet modifiée. Mise à jour nécessaire." });
+        }
         const statusCode = error.code === 'ECONNABORTED' ? 504 : 502;
         res.status(statusCode).json({ success: false, erreur: "Le service officiel est temporairement indisponible." });
     }
